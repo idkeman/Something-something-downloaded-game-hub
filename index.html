@@ -130,6 +130,21 @@
     const fileInput = document.getElementById('gameFile');
     const empty = document.getElementById('emptyState');
     const status = document.getElementById('status');
+    // Keep the placeholder out of the way whenever the iframe has a real game/page loaded.
+    // This also covers future loaders that set src or srcdoc without calling a specific helper.
+    frame.addEventListener('load', () => {
+      if (frame.hasAttribute('src') && frame.getAttribute('src') ||
+          frame.hasAttribute('srcdoc') && frame.getAttribute('srcdoc')) {
+        empty.hidden = true;
+      }
+    });
+    const frameLoadObserver = new MutationObserver(() => {
+      if ((frame.hasAttribute('src') && frame.getAttribute('src')) ||
+          (frame.hasAttribute('srcdoc') && frame.getAttribute('srcdoc'))) {
+        empty.hidden = true;
+      }
+    });
+    frameLoadObserver.observe(frame, { attributes: true, attributeFilter: ['src', 'srcdoc'] });
     const title = document.getElementById('gameTitle');
     const library = document.getElementById('gameLibrary');
     const libraryStatus = document.getElementById('libraryStatus');
