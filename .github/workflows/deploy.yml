@@ -67,8 +67,14 @@ jobs:
               if (ext === "zip") {
                 await loadBoxedwineDeps();
                 await handleZip(file);
-              } else if (ext === "exe" || ext === "msi") {
+              } else if (ext === "exe") {
                 await handleSingleExe(file);
+              } else if (ext === "msi") {
+                clearStaged();
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                const safe = sanitizeRelPath(file.name);
+                state.stagedFiles.push({path:safe,bytes});
+                refreshEntryPicker();
               } else {
                 setStatus("Choose an EXE, MSI, or ZIP containing a Windows application.");
               }
