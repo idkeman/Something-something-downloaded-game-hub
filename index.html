@@ -144,7 +144,8 @@
       db.close(); renderLibrary();
     }
     function showGame(blob,name) {
-      currentBlob = blob; currentNativeFile = null; currentName = name;
+      currentBlob = blob; currentNativeFile = null; currentDosFile = null; currentName = name;
+      frame.removeAttribute('srcdoc');
       if (currentUrl) URL.revokeObjectURL(currentUrl);
       currentUrl = URL.createObjectURL(blob);
       frame.src = currentUrl; empty.hidden = true; title.textContent = name;
@@ -172,6 +173,7 @@
       if (currentUrl && currentUrl.startsWith('blob:')) URL.revokeObjectURL(currentUrl);
       currentBlob = null; currentNativeFile = null; currentDosFile = file;
       currentName = file.name;
+      frame.removeAttribute('src');
       title.textContent = file.name + ' · DOSBox';
       status.textContent = 'Starting DOSBox WebAssembly runtime…';
       empty.hidden = true;
@@ -332,7 +334,7 @@
       else status.textContent='Load a game first';
     });
     document.getElementById('clearButton').addEventListener('click',()=>{
-      frame.removeAttribute('src'); if(currentUrl && currentUrl.startsWith('blob:'))URL.revokeObjectURL(currentUrl);
+      frame.removeAttribute('src'); frame.removeAttribute('srcdoc'); if(currentUrl && currentUrl.startsWith('blob:'))URL.revokeObjectURL(currentUrl);
       currentUrl='';currentBlob=null;currentNativeFile=null;currentDosFile=null;currentName='';title.textContent='Game player';
       status.textContent='Ready for a game';empty.hidden=false;
     });
