@@ -144,7 +144,7 @@
       db.close(); renderLibrary();
     }
     function showGame(blob,name) {
-      currentBlob = blob; currentName = name;
+      currentBlob = blob; currentNativeFile = null; currentName = name;
       if (currentUrl) URL.revokeObjectURL(currentUrl);
       currentUrl = URL.createObjectURL(blob);
       frame.src = currentUrl; empty.hidden = true; title.textContent = name;
@@ -233,6 +233,7 @@
       } catch(e) { libraryStatus.textContent='Browser storage unavailable'; }
     }
     document.getElementById('uploadButton').addEventListener('click',()=>{
+      fileInput.accept='.html,.htm,.zip,.exe,.msi,.apk';
       if(!fileInput.files.length){fileInput.click();return;}
       importFile(fileInput.files[0]);
     });
