@@ -50,9 +50,8 @@ jobs:
           let source = fs.readFileSync(file, "utf8");
           source = source.replace(
             'if (arch && !state.booted && !state.bootInFlight && state.arch !== arch) {',
-            'if (arch === "64") { log("64-bit EXE detected. This embedded build currently supports 32-bit Windows apps only.", "warn"); state.pickedExe = null; els.runBtn.disabled = true; setStatus("64-bit EXE detected — this player currently supports 32-bit Windows apps only."); return; }\n  if (arch && !state.booted && !state.bootInFlight && state.arch !== arch) {'
-          );
-          const marker = '\n})();';
+            'if (arch === "64") { log("64-bit EXE detected. This embedded build currently supports 32-bit Windows apps only.", "warn"); state.pickedExe = null; els.runBtn.disabled = true; setStatus("64-bit EXE detected — this player currently supports 32-bit Windows apps only."); return; } if (arch && !state.booted && !state.bootInFlight && state.arch !== arch) {'
+          );          const marker = '\n})();';
           const at = source.lastIndexOf(marker);
           if (at < 0) throw new Error("Could not find WindowsAppPlayer bootstrap ending");
           const bridge = `
