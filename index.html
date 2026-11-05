@@ -29,7 +29,7 @@
     .player-title{font-weight:700}.player-status{font-size:12px;color:var(--muted);margin-top:3px}
     .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .url-form{display:flex;gap:8px;flex:1;min-width:min(100%,320px);max-width:650px}
-    .url-form input{min-width:0;flex:1;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:#09090dcc;color:#fff;outline:none}
+    .url-form input{min-width:0;flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:12px;background:#09090dcc;color:#fff;outline:none}.url-form input::file-selector-button{border:0;border-radius:8px;padding:8px 10px;margin-right:10px;background:#ffffff18;color:#fff;cursor:pointer}
     .url-form input:focus{border-color:#718bff;box-shadow:0 0 0 3px #4169e133}
     .btn{border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:#ffffff0d;transition:.18s}
     .btn:hover{background:#ffffff1b;transform:translateY(-1px)}
@@ -47,7 +47,7 @@
     .shortcuts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
     .shortcut{border:1px solid var(--line);border-radius:18px;padding:17px;background:var(--panel);text-align:left;transition:.2s}
     .shortcut:hover{transform:translateY(-4px);border-color:#ffffff38;background:#ffffff10}
-    .shortcut .symbol{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(135deg,#fe191e55,#4169e155);font-size:20px;margin-bottom:12px}
+    .library-launch{display:block;width:100%;border:0;background:transparent;color:inherit;text-align:left;padding:0}.saved-game{display:flex;flex-direction:column;align-items:stretch;gap:12px}.shortcut .symbol{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(135deg,#fe191e55,#4169e155);font-size:20px;margin-bottom:12px}
     .shortcut strong{display:block;font-size:15px}.shortcut span{display:block;color:var(--muted);font-size:12px;margin-top:5px;line-height:1.5}
     footer{text-align:center;color:#777;font-size:12px;padding:25px 15px 35px}
     @media(max-width:700px){.topbar{top:7px;margin-top:7px}.navlinks a{padding:9px}.hero{padding-top:48px}.shortcuts{grid-template-columns:1fr}.stage{height:58vh;min-height:300px}.player-head{align-items:stretch}.url-form{max-width:none;order:2;flex-basis:100%}.tools{justify-content:flex-end}.below{align-items:flex-start}}
@@ -56,7 +56,7 @@
 <body>
   <nav class="topbar" aria-label="Main navigation">
     <div class="brand"><span class="brand-mark">▶</span><span>Downloaded Game Hub</span></div>
-    <div class="navlinks"><a href="#player">Player</a><a href="#shortcuts">Tools</a><button id="clearButton" type="button">Clear frame</button></div>
+    <div class="navlinks"><a href="#player">Player</a><a href="#library">Game library</a><a href="#shortcuts">Tools</a><button id="clearButton" type="button">Clear frame</button></div>
   </nav>
 
   <header class="hero">
@@ -70,10 +70,7 @@
       <div class="player-head">
         <div><div class="player-title" id="gameTitle">Game player</div><div class="player-status" id="status">Ready for a game</div></div>
         <div class="tools">
-          <form class="url-form" id="loadForm">
-            <input id="gameUrl" type="text" inputmode="url" autocomplete="url" placeholder="Paste a game URL or local game path…" aria-label="Game URL">
-            <button class="btn primary" type="submit">Load game</button>
-          </form>
+          <div class="url-form" id="uploadForm"><input id="gameFile" type="file" accept=".html,.htm,.zip,text/html,application/zip" aria-label="Choose a browser game file"><button class="btn primary" id="uploadButton" type="button">Load file</button></div>
           <button class="btn" id="reloadButton" type="button" title="Reload game">↻</button>
           <button class="btn" id="fullscreenButton" type="button" title="Fullscreen">⛶</button>
         </div>
@@ -81,11 +78,13 @@
       <div class="stage-wrap">
         <div class="stage" id="stage">
           <iframe id="gameFrame" title="Loaded game" allow="autoplay; fullscreen; gamepad; clipboard-read; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe>
-          <div class="empty" id="emptyState"><div class="empty-inner"><div class="empty-icon">🎮</div><h2>Your game goes here</h2><p>Enter a game URL above and select <b>Load game</b>. Games that allow embedding will open inside this player.</p></div></div>
+          <div class="empty" id="emptyState"><div class="empty-inner"><div class="empty-icon">🎮</div><h2>Your game goes here</h2><p>Choose a browser game file above, or pick a saved game from the library below. HTML games and ZIP packages containing an index.html file are supported.</p></div></div>
         </div>
       </div>
       <div class="below"><span>Embedded game window</span><span>Some sites block iframe embedding; those games must be opened in a new tab.</span></div>
     </section>
+
+    <section id="library"><div class="section-head"><div><h2>Game library</h2><p>Launch games imported into this browser. Your library stays on this device.</p></div><span class="player-status" id="libraryStatus">No imported games yet</span></div><div class="shortcuts" id="gameLibrary"><button class="shortcut" id="ragdollImportButton" type="button"><span class="symbol">🪆</span><strong>Ragdoll Sandbox</strong><span>Select the downloaded Ragdoll HTML file to add it to this library.</span></button></div></section>
 
     <section id="shortcuts">
       <div class="section-head"><div><h2>Quick actions</h2><p>Useful controls for the game window.</p></div></div>
@@ -100,58 +99,142 @@
 
   <script>
     const frame = document.getElementById('gameFrame');
-    const input = document.getElementById('gameUrl');
+    const fileInput = document.getElementById('gameFile');
     const empty = document.getElementById('emptyState');
     const status = document.getElementById('status');
     const title = document.getElementById('gameTitle');
-    let currentUrl = '';
+    const library = document.getElementById('gameLibrary');
+    const libraryStatus = document.getElementById('libraryStatus');
+    let currentUrl = '', currentBlob = null, currentName = '';
+    const DB_NAME = 'downloaded-game-hub', STORE = 'games';
 
-    function normalizeUrl(value) {
-      const trimmed = value.trim();
-      if (!trimmed) return '';
-      if (/^(https?:\/\/|file:|\.\.?\/|\/)/i.test(trimmed)) return trimmed;
-      return 'https://' + trimmed;
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(STORE, {keyPath:'id'});
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
     }
-    function loadGame(value) {
-      const url = normalizeUrl(value);
-      if (!url) { status.textContent = 'Enter a game URL first'; input.focus(); return; }
-      try {
-        const parsed = new URL(url, window.location.href);
-        if (!['http:', 'https:', 'file:'].includes(parsed.protocol)) throw new Error('Unsupported protocol');
-        currentUrl = parsed.href;
-        frame.src = currentUrl;
-        empty.hidden = true;
-        input.value = currentUrl;
-        title.textContent = parsed.hostname || 'Local game';
-        status.textContent = 'Loading game…';
-        frame.onload = () => { status.textContent = 'Game loaded (if the site permits embedding)'; };
-      } catch {
-        status.textContent = 'That address does not look valid';
+    async function getGames() {
+      const db = await openDatabase();
+      const games = await new Promise((resolve,reject) => {
+        const req = db.transaction(STORE).objectStore(STORE).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+      db.close(); return games;
+    }
+    async function saveGame(game) {
+      const db = await openDatabase();
+      await new Promise((resolve,reject) => {
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).put(game);
+        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    }
+    async function removeGame(id) {
+      const db = await openDatabase();
+      await new Promise((resolve,reject) => {
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+      });
+      db.close(); renderLibrary();
+    }
+    function showGame(blob,name) {
+      currentBlob = blob; currentName = name;
+      if (currentUrl) URL.revokeObjectURL(currentUrl);
+      currentUrl = URL.createObjectURL(blob);
+      frame.src = currentUrl; empty.hidden = true; title.textContent = name;
+      status.textContent = 'Loading game…';
+      frame.onload = () => status.textContent = 'Game loaded';
+      document.getElementById('player').scrollIntoView({behavior:'smooth',block:'start'});
+    }
+    async function importFile(file,forcedName) {
+      if (!file) return;
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (['exe','apk','msi','dmg','ipa'].includes(ext)) {
+        status.textContent = 'Native EXE/APK apps cannot be automatically converted. They need a browser port or a compatible emulator.';
+        return;
       }
+      let blob, name = forcedName || file.name.replace(/\.(html?|zip)$/i,'');
+      if (ext === 'html' || ext === 'htm') {
+        blob = new Blob([await file.arrayBuffer()],{type:'text/html'});
+      } else if (ext === 'zip') {
+        status.textContent = 'Reading ZIP package…';
+        try {
+          if (!window.JSZip) await new Promise((resolve,reject) => {
+            const s=document.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+            s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
+          });
+          const zip=await JSZip.loadAsync(file);
+          const entry=Object.keys(zip.files).find(p=>!zip.files[p].dir&&/(^|\/)index\.html?$/i.test(p))
+            || Object.keys(zip.files).find(p=>!zip.files[p].dir&&/\.html?$/i.test(p));
+          if(!entry) throw new Error('No HTML entry point found');
+          blob=new Blob([await zip.files[entry].async('arraybuffer')],{type:'text/html'});
+          name=forcedName||file.name.replace(/\.zip$/i,'');
+          status.textContent='Loaded the HTML entry point. ZIP games that rely on separate relative asset files may need packaging adjustments.';
+        } catch(e) { status.textContent='Could not read ZIP: '+e.message; return; }
+      } else {
+        status.textContent='Choose an HTML file or a ZIP containing an HTML entry point.'; return;
+      }
+      const game={id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name,blob,added:Date.now()};
+      try {
+        await saveGame(game); showGame(blob,name); await renderLibrary();
+        status.textContent=name+' saved in your game library';
+      } catch(e) { status.textContent='Could not save game: '+e.message; }
     }
+    async function renderLibrary() {
+      try {
+        const games=await getGames();
+        library.querySelectorAll('.saved-game').forEach(n=>n.remove());
+        libraryStatus.textContent=games.length?games.length+' saved game'+(games.length===1?'':'s'):'No imported games yet';
+        games.sort((a,b)=>a.name.localeCompare(b.name)).forEach(game=>{
+          const card=document.createElement('div'); card.className='shortcut saved-game';
+          const launch=document.createElement('button'); launch.type='button'; launch.className='library-launch';
+          launch.innerHTML='<span class="symbol">🎮</span><strong></strong><span>Load this game into the player.</span>';
+          launch.querySelector('strong').textContent=game.name;
+          launch.addEventListener('click',()=>showGame(game.blob,game.name));
+          const remove=document.createElement('button'); remove.type='button'; remove.className='btn'; remove.textContent='Remove';
+          remove.addEventListener('click',()=>removeGame(game.id));
+          card.append(launch,remove); library.appendChild(card);
+        });
+      } catch(e) { libraryStatus.textContent='Browser storage unavailable'; }
+    }
+    document.getElementById('uploadButton').addEventListener('click',()=>{
+      if(!fileInput.files.length){fileInput.click();return;}
+      importFile(fileInput.files[0]);
+    });
+    fileInput.addEventListener('change',()=>{if(fileInput.files.length)importFile(fileInput.files[0]);});
+    document.getElementById('ragdollImportButton').addEventListener('click',()=>{
+      fileInput.accept='.html,.htm'; fileInput.click();
+      status.textContent='Select the downloaded Ragdoll Sandbox HTML file';
+    });
     function reloadGame() {
-      if (!currentUrl) { status.textContent = 'Load a game first'; return; }
-      frame.src = currentUrl;
-      status.textContent = 'Reloading game…';
+      if(!currentBlob){status.textContent='Load a game first';return;}
+      showGame(currentBlob,currentName); status.textContent='Game restarted';
     }
     function fullscreen() {
-      const target = document.getElementById('stage');
-      if (target.requestFullscreen) target.requestFullscreen();
-      else if (frame.requestFullscreen) frame.requestFullscreen();
+      const target=document.getElementById('stage');
+      if(target.requestFullscreen)target.requestFullscreen();
+      else if(frame.requestFullscreen)frame.requestFullscreen();
     }
-    document.getElementById('loadForm').addEventListener('submit', event => { event.preventDefault(); loadGame(input.value); });
-    document.getElementById('reloadButton').addEventListener('click', reloadGame);
-    document.getElementById('reloadCardButton').addEventListener('click', reloadGame);
-    document.getElementById('fullscreenButton').addEventListener('click', fullscreen);
-    document.getElementById('fullscreenCardButton').addEventListener('click', fullscreen);
-    document.getElementById('openTabButton').addEventListener('click', () => {
-      if (currentUrl) window.open(currentUrl, '_blank', 'noopener,noreferrer');
-      else status.textContent = 'Load a game first';
+    document.getElementById('reloadButton').addEventListener('click',reloadGame);
+    document.getElementById('reloadCardButton').addEventListener('click',reloadGame);
+    document.getElementById('fullscreenButton').addEventListener('click',fullscreen);
+    document.getElementById('fullscreenCardButton').addEventListener('click',fullscreen);
+    document.getElementById('openTabButton').addEventListener('click',()=>{
+      if(currentUrl)window.open(currentUrl,'_blank','noopener,noreferrer');
+      else status.textContent='Load a game first';
     });
-    document.getElementById('clearButton').addEventListener('click', () => {
-      frame.removeAttribute('src'); currentUrl = ''; input.value = ''; title.textContent = 'Game player';
-      status.textContent = 'Ready for a game'; empty.hidden = false;
+    document.getElementById('clearButton').addEventListener('click',()=>{
+      frame.removeAttribute('src'); if(currentUrl)URL.revokeObjectURL(currentUrl);
+      currentUrl='';currentBlob=null;currentName='';title.textContent='Game player';
+      status.textContent='Ready for a game';empty.hidden=false;
     });
-  </script>
-</body>
+    renderLibrary();
+  </script></body>
 </html>
