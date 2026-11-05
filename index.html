@@ -298,7 +298,7 @@
           const launch=document.createElement('button'); launch.type='button'; launch.className='library-launch';
           launch.innerHTML='<span class="symbol">🎮</span><strong></strong><span>Load this game into the player.</span>';
           launch.querySelector('strong').textContent=game.name;
-          launch.addEventListener('click',()=>game.kind==='windows'?launchWindowsApp(game.blob):showGame(game.blob,game.name));
+          launch.addEventListener('click',()=>game.kind==='windows'?launchWindowsApp(game.blob):game.kind==='dos'?launchDosApp(game.blob):showGame(game.blob,game.name));
           const remove=document.createElement('button'); remove.type='button'; remove.className='btn'; remove.textContent='Remove';
           remove.addEventListener('click',()=>removeGame(game.id));
           card.append(launch,remove); library.appendChild(card);
