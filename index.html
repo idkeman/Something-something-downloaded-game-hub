@@ -70,7 +70,7 @@
       <div class="player-head">
         <div><div class="player-title" id="gameTitle">Game player</div><div class="player-status" id="status">Ready for a game</div></div>
         <div class="tools">
-          <div class="url-form" id="uploadForm"><input id="gameFile" type="file" accept=".html,.htm,.zip,.exe,.msi,.apk,text/html,application/zip,application/vnd.android.package-archive,application/x-msdownload" aria-label="Choose a browser game file"><button class="btn primary" id="uploadButton" type="button">Load file</button></div>
+          <div class="url-form" id="uploadForm"><input id="gameFile" type="file" accept=".html,.htm,.zip,.exe,.msi,.apk,.com,.bat,.jsdos,text/html,application/zip,application/vnd.android.package-archive,application/x-msdownload" aria-label="Choose a browser game file"><button class="btn primary" id="uploadButton" type="button">Load file</button></div>
           <button class="btn" id="reloadButton" type="button" title="Reload game">↻</button>
           <button class="btn" id="fullscreenButton" type="button" title="Fullscreen">⛶</button>
         </div>
@@ -105,7 +105,7 @@
     const title = document.getElementById('gameTitle');
     const library = document.getElementById('gameLibrary');
     const libraryStatus = document.getElementById('libraryStatus');
-    let currentUrl = '', currentBlob = null, currentNativeFile = null, currentName = '';
+    let currentUrl = '', currentBlob = null, currentNativeFile = null, currentDosFile = null, currentName = '';
     const DB_NAME = 'downloaded-game-hub', STORE = 'games';
 
     function openDatabase() {
@@ -168,13 +168,70 @@
       frame.src = currentUrl;
       document.getElementById('player').scrollIntoView({behavior:'smooth',block:'start'});
     }
+    function launchDosApp(file) {
+      if (currentUrl && currentUrl.startsWith('blob:')) URL.revokeObjectURL(currentUrl);
+      currentBlob = null; currentNativeFile = null; currentDosFile = file;
+      currentName = file.name;
+      title.textContent = file.name + ' · DOSBox';
+      status.textContent = 'Starting DOSBox WebAssembly runtime…';
+      empty.hidden = true;
+      frame.onload = () => {
+        frame.contentWindow.postMessage({type:'DGH_LOAD_DOS_FILE',file}, location.origin);
+        status.textContent = 'DOSBox received ' + file.name;
+      };
+      frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://v7.js-dos.com/6.22/current/js-dos.css"><style>html,body,#dos{margin:0;width:100%;height:100%;background:#08090d}#dos{overflow:hidden}</style></head><body><div id="dos"></div><script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script><script src="https://v7.js-dos.com/6.22/current/js-dos.js"><\/script><script>
+      window.addEventListener('message',async function(event){
+        if(event.origin!==location.origin||event.source!==parent||!event.data||event.data.type!=='DGH_LOAD_DOS_FILE')return;
+        const file=event.data.file;
+        try{
+          const inputZip=file.name.toLowerCase().endsWith('.zip')||file.name.toLowerCase().endsWith('.jsdos');
+          const source=inputZip?await JSZip.loadAsync(file):null;
+          if(source&&source.file('.jsdos/dosbox.conf')){
+            const url=URL.createObjectURL(new Blob([await file.arrayBuffer()],{type:'application/zip'}));
+            Dos(document.getElementById('dos')).run(url);
+            return;
+          }
+          const output=new JSZip();
+          const entries=[];
+          if(source){
+            for(const [path,item] of Object.entries(source.files)){
+              if(item.dir||path.startsWith('__MACOSX/'))continue;
+              output.file(path,await item.async('uint8array'));
+              if(/\.(exe|com|bat)$/i.test(path))entries.push(path);
+            }
+          }else{
+            output.file(file.name,await file.arrayBuffer());
+            entries.push(file.name);
+          }
+          if(!entries.length)throw new Error('No DOS .EXE, .COM, or .BAT entry point was found.');
+          const entry=entries.find(p=>/\.com$/i.test(p))||entries.find(p=>/\.exe$/i.test(p))||entries[0];
+          const dir=entry.includes('/')?entry.slice(0,entry.lastIndexOf('/')):'';
+          const base=entry.slice(entry.lastIndexOf('/')+1);
+          const conf='[sdl]\\nautolock=false\\n[dos]\\nxms=true\\nemm=true\\numb=true\\n[autoexec]\\n@echo off\\nmount c .\\nc: \\n'+(dir?'cd "'+dir+'"\\n':'')+base+'\\n';
+          output.file('.jsdos/dosbox.conf',conf);
+          output.file('.jsdos/jsdos.json',JSON.stringify({version:1,files:[]}));
+          const bundle=await output.generateAsync({type:'blob',compression:'STORE'});
+          const url=URL.createObjectURL(bundle);
+          Dos(document.getElementById('dos')).run(url);
+        }catch(error){document.body.innerHTML='<pre style="color:#fff;padding:20px;white-space:pre-wrap"></pre>';document.querySelector('pre').textContent='DOSBox could not start: '+error.message;}
+      });
+      <\/script></body></html>`;
+      document.getElementById('player').scrollIntoView({behavior:'smooth',block:'start'});
+    }
     async function importFile(file,forcedName) {
       if (!file) return;
       const ext = file.name.split('.').pop().toLowerCase();
-      if (['exe','msi'].includes(ext)) {
+      if (['exe','msi','com','bat'].includes(ext)) {
         try {
-          await saveGame({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name:file.name,blob:file,kind:'windows',added:Date.now()});
-          launchWindowsApp(file);
+          if(ext==='com'||ext==='bat') {
+            await saveGame({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name:file.name,blob:file,kind:'dos',added:Date.now()});
+            launchDosApp(file);
+          } else {
+            const bytes=new Uint8Array(await file.arrayBuffer());
+            const isPE=bytes.length>0x40&&bytes[0]===0x4d&&bytes[1]===0x5a&&(()=>{const p=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(0x3c,true);return p+4<bytes.length&&bytes[p]===0x50&&bytes[p+1]===0x45&&bytes[p+2]===0&&bytes[p+3]===0;})();
+            await saveGame({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name:file.name,blob:file,kind:isPE?'windows':'dos',added:Date.now()});
+            if(isPE)launchWindowsApp(file);else launchDosApp(file);
+          }
           await renderLibrary();
         } catch(e) { status.textContent='Could not save executable: '+e.message; }
         return;
@@ -203,8 +260,15 @@
             || Object.keys(zip.files).find(p=>!zip.files[p].dir&&/\.html?$/i.test(p));
           if(!entry) {
             const hasWindowsApp=Object.keys(zip.files).some(p=>!zip.files[p].dir&&/\.(exe|msi)$/i.test(p));
-            if(hasWindowsApp) { launchWindowsApp(file); return; }
-            throw new Error('No HTML game or Windows executable found in the ZIP');
+            const hasDosApp=Object.keys(zip.files).some(p=>!zip.files[p].dir&&/\.(com|bat)$/i.test(p));
+            if(hasWindowsApp) {
+              const winExe=Object.keys(zip.files).find(p=>!zip.files[p].dir&&/\.exe$/i.test(p));
+              const winBytes=winExe?await zip.files[winExe].async('uint8array'):null;
+              const isPE=!!winBytes&&winBytes.length>0x40&&winBytes[0]===0x4d&&winBytes[1]===0x5a&&(()=>{const p=new DataView(winBytes.buffer,winBytes.byteOffset,winBytes.byteLength).getUint32(0x3c,true);return p+4<winBytes.length&&winBytes[p]===0x50&&winBytes[p+1]===0x45&&winBytes[p+2]===0&&winBytes[p+3]===0;})();
+              if(isPE||!hasDosApp){launchWindowsApp(file);return;}
+            }
+            if(hasDosApp||hasWindowsApp){launchDosApp(file);return;}
+            throw new Error('No HTML game or supported Windows/DOS executable found in the ZIP');
           }
           blob=new Blob([await zip.files[entry].async('arraybuffer')],{type:'text/html'});
           name=forcedName||file.name.replace(/\.zip$/i,'');
@@ -237,7 +301,7 @@
       } catch(e) { libraryStatus.textContent='Browser storage unavailable'; }
     }
     document.getElementById('uploadButton').addEventListener('click',()=>{
-      fileInput.accept='.html,.htm,.zip,.exe,.msi,.apk';
+      fileInput.accept='.html,.htm,.zip,.exe,.msi,.apk,.com,.bat,.jsdos';
       if(!fileInput.files.length){fileInput.click();return;}
       importFile(fileInput.files[0]);
     });
@@ -248,6 +312,7 @@
     });
     function reloadGame() {
       if(currentNativeFile){launchWindowsApp(currentNativeFile);return;}
+      if(currentDosFile){launchDosApp(currentDosFile);return;}
       if(!currentBlob){status.textContent='Load a game first';return;}
       showGame(currentBlob,currentName); status.textContent='Game restarted';
     }
@@ -261,13 +326,13 @@
     document.getElementById('fullscreenButton').addEventListener('click',fullscreen);
     document.getElementById('fullscreenCardButton').addEventListener('click',fullscreen);
     document.getElementById('openTabButton').addEventListener('click',()=>{
-      if(currentNativeFile) { status.textContent='The executable is passed to the embedded emulator; use the player frame to run it.'; return; }
+      if(currentNativeFile||currentDosFile) { status.textContent='The executable is running in its embedded emulator.'; return; }
       if(currentUrl)window.open(currentUrl,'_blank','noopener,noreferrer');
       else status.textContent='Load a game first';
     });
     document.getElementById('clearButton').addEventListener('click',()=>{
       frame.removeAttribute('src'); if(currentUrl && currentUrl.startsWith('blob:'))URL.revokeObjectURL(currentUrl);
-      currentUrl='';currentBlob=null;currentNativeFile=null;currentName='';title.textContent='Game player';
+      currentUrl='';currentBlob=null;currentNativeFile=null;currentDosFile=null;currentName='';title.textContent='Game player';
       status.textContent='Ready for a game';empty.hidden=false;
     });
     renderLibrary();
