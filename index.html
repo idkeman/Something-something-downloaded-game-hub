@@ -234,7 +234,7 @@
           } else {
             const bytes=new Uint8Array(await file.arrayBuffer());
             const isPE=bytes.length>0x40&&bytes[0]===0x4d&&bytes[1]===0x5a&&(()=>{const p=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(0x3c,true);return p+4<bytes.length&&bytes[p]===0x50&&bytes[p+1]===0x45&&bytes[p+2]===0&&bytes[p+3]===0;})();
-            await saveGame({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name:file.name,blob:file,kind:isPE?'windows':'dos',added:Date.now()});
+            await saveGame({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name:file.name,blob:file,kind:(isPE||ext==='msi')?'windows':'dos',added:Date.now()});
             if(isPE||ext==='msi')launchWindowsApp(file);else launchDosApp(file);
           }
           await renderLibrary();
