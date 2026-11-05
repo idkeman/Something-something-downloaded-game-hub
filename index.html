@@ -201,7 +201,11 @@
           const zip=await JSZip.loadAsync(file);
           const entry=Object.keys(zip.files).find(p=>!zip.files[p].dir&&/(^|\/)index\.html?$/i.test(p))
             || Object.keys(zip.files).find(p=>!zip.files[p].dir&&/\.html?$/i.test(p));
-          if(!entry) throw new Error('No HTML entry point found');
+          if(!entry) {
+            const hasWindowsApp=Object.keys(zip.files).some(p=>!zip.files[p].dir&&/\.(exe|msi)$/i.test(p));
+            if(hasWindowsApp) { launchWindowsApp(file); return; }
+            throw new Error('No HTML game or Windows executable found in the ZIP');
+          }
           blob=new Blob([await zip.files[entry].async('arraybuffer')],{type:'text/html'});
           name=forcedName||file.name.replace(/\.zip$/i,'');
           status.textContent='Loaded the HTML entry point. ZIP games that rely on separate relative asset files may need packaging adjustments.';
