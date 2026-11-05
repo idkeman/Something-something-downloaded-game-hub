@@ -106,7 +106,7 @@
       <div class="preset-grid" id="presetGrid"><div class="preset-empty">No presets yet. Add a website above, or add a shared preset to SHARED_PRESETS in index.html.</div></div>
     </section>
 
-    <section id="library"><div class="section-head"><div><h2>Game library</h2><p>Launch games imported into this browser. Your library stays on this device.</p></div><span class="player-status" id="libraryStatus">No imported games yet</span></div><div class="shortcuts" id="gameLibrary"><button class="shortcut" id="ragdollImportButton" type="button"><span class="symbol">🪆</span><strong>Ragdoll Sandbox</strong><span>Select the downloaded Ragdoll HTML file to add it to this library.</span></button></div></section>
+    <section id="library"><div class="section-head"><div><h2>Game library</h2><p>Your imported games stay on this device. Community uploads are shared with everyone using this site.</p></div><span class="player-status" id="libraryStatus">No imported games yet</span></div><div class="shortcuts" id="gameLibrary"><button class="shortcut" id="ragdollImportButton" type="button"><span class="symbol">🪆</span><strong>Ragdoll Sandbox</strong><span>Select the downloaded Ragdoll HTML file to add it to this library.</span></button></div><div class="section-head"><div><h2>Community uploads</h2><p>Files uploaded by other visitors appear here automatically. Maximum file size: 50 MB.</p></div><button class="btn" id="refreshCommunityButton" type="button">Refresh</button></div><div class="shortcuts" id="communityLibrary"><div class="preset-empty">Connecting to shared library…</div></div></section>
 
     <section id="shortcuts">
       <div class="section-head"><div><h2>Quick actions</h2><p>Useful controls for the game window.</p></div></div>
@@ -119,7 +119,13 @@
   </main>
   <footer>Downloaded Game Hub · Browser-based game launcher</footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.min.js"></script>
   <script>
+    const SUPABASE_URL = 'https://dkwmkvruzebnqlmvwzhy.supabase.co';
+    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Tur9X4MaQjH__4DnEtwAAQ_Xy9xVl5P';
+    const COMMUNITY_BUCKET = 'community-games';
+    const MAX_COMMUNITY_FILE_SIZE = 50 * 1024 * 1024;
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
     const frame = document.getElementById('gameFrame');
     const fileInput = document.getElementById('gameFile');
     const empty = document.getElementById('emptyState');
@@ -136,6 +142,74 @@
     ];
     let currentUrl = '', currentBlob = null, currentNativeFile = null, currentDosFile = null, currentName = '';
     const DB_NAME = 'downloaded-game-hub', STORE = 'games';
+
+    function safeCommunityFilename(name) {
+      return String(name || 'upload.bin').replace(/[^a-zA-Z0-9._ -]/g, '_').trim().replace(/\s+/g, '_').slice(0, 150) || 'upload.bin';
+    }
+    async function shareCommunityFile(file) {
+      if (file.size > MAX_COMMUNITY_FILE_SIZE) throw new Error('Files must be 50 MB or smaller.');
+      if (!file.size) throw new Error('Empty files cannot be uploaded.');
+      const path = crypto.randomUUID() + '__' + safeCommunityFilename(file.name);
+      const contentType = file.type || 'application/octet-stream';
+      const { error: uploadError } = await supabaseClient.storage.from(COMMUNITY_BUCKET).upload(path, file, {
+        cacheControl: '3600', contentType, upsert: false
+      });
+      if (uploadError) throw uploadError;
+      const { error: metadataError } = await supabaseClient.from('community_game_uploads').insert({
+        name: String(file.name).slice(0, 180), storage_path: path, size_bytes: file.size, content_type: contentType
+      });
+      if (metadataError) throw new Error('The file reached storage, but its shared-library entry could not be created: ' + metadataError.message);
+      return path;
+    }
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    async function loadCommunityFile(item) {
+      status.textContent = 'Downloading ' + item.name + ' from the community library…';
+      const { data, error } = await supabaseClient.storage.from(COMMUNITY_BUCKET).download(item.storage_path);
+      if (error) { status.textContent = 'Could not download shared file: ' + error.message; return; }
+      const file = new File([data], item.name, { type: item.content_type || 'application/octet-stream' });
+      await importFile(file, item.name, false);
+    }
+    async function renderCommunityLibrary() {
+      const target = document.getElementById('communityLibrary');
+      if (!target) return;
+      const { data, error } = await supabaseClient.from('community_game_uploads')
+        .select('id,name,storage_path,size_bytes,content_type,uploaded_at')
+        .order('uploaded_at', { ascending: false }).limit(100);
+      target.replaceChildren();
+      if (error) {
+        const message = document.createElement('div'); message.className = 'preset-empty';
+        message.textContent = 'Shared library unavailable: ' + error.message; target.appendChild(message); return;
+      }
+      if (!data || !data.length) {
+        const message = document.createElement('div'); message.className = 'preset-empty';
+        message.textContent = 'No community uploads yet. Upload a game above to share it with everyone.'; target.appendChild(message); return;
+      }
+      data.forEach(item => {
+        const card = document.createElement('article'); card.className = 'shortcut saved-game';
+        const launch = document.createElement('button'); launch.type = 'button'; launch.className = 'library-launch';
+        launch.innerHTML = '<span class="symbol">🌐</span><strong></strong><span></span>';
+        launch.querySelector('strong').textContent = item.name;
+        launch.querySelector('span:last-child').textContent = formatFileSize(item.size_bytes) + ' · Shared by a visitor';
+        launch.addEventListener('click', () => loadCommunityFile(item));
+        const download = document.createElement('button'); download.type = 'button'; download.className = 'btn'; download.textContent = 'Download file';
+        download.addEventListener('click', async () => {
+          const { data: blob, error: downloadError } = await supabaseClient.storage.from(COMMUNITY_BUCKET).download(item.storage_path);
+          if (downloadError) { status.textContent = 'Download failed: ' + downloadError.message; return; }
+          const url = URL.createObjectURL(blob); const a = document.createElement('a');
+          a.href = url; a.download = item.name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 30000);
+        });
+        card.append(launch, download); target.appendChild(card);
+      });
+    }
+    function watchCommunityLibrary() {
+      supabaseClient.channel('community-game-uploads-live')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'community_game_uploads' }, renderCommunityLibrary)
+        .subscribe();
+    }
 
     function openDatabase() {
       return new Promise((resolve, reject) => {
@@ -324,8 +398,19 @@
       <\/script></body></html>`;
       document.getElementById('player').scrollIntoView({behavior:'smooth',block:'start'});
     }
-    async function importFile(file,forcedName) {
+    async function importFile(file,forcedName,shareWithEveryone=true) {
       if (!file) return;
+      if (shareWithEveryone) {
+        status.textContent = 'Uploading ' + file.name + ' to the shared community library…';
+        try {
+          await shareCommunityFile(file);
+          await renderCommunityLibrary();
+          status.textContent = file.name + ' uploaded and shared with everyone.';
+        } catch (e) {
+          status.textContent = 'Could not share this file: ' + e.message;
+          return;
+        }
+      }
       const ext = file.name.split('.').pop().toLowerCase();
       if (['exe','msi','com','bat','jsdos'].includes(ext)) {
         try {
@@ -427,6 +512,7 @@
       if(target.requestFullscreen)target.requestFullscreen();
       else if(frame.requestFullscreen)frame.requestFullscreen();
     }
+    document.getElementById('refreshCommunityButton').addEventListener('click',renderCommunityLibrary);
     document.getElementById('reloadButton').addEventListener('click',reloadGame);
     document.getElementById('reloadCardButton').addEventListener('click',reloadGame);
     document.getElementById('fullscreenButton').addEventListener('click',fullscreen);
@@ -443,5 +529,7 @@
     });
     renderPresets();
     renderLibrary();
+    renderCommunityLibrary();
+    watchCommunityLibrary();
   </script></body>
 </html>
