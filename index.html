@@ -156,8 +156,9 @@
     function launchWindowsApp(file) {
       if (currentUrl && currentUrl.startsWith('blob:')) URL.revokeObjectURL(currentUrl);
       currentBlob = null;
-      currentNativeFile = file;
+      currentNativeFile = file; currentDosFile = null;
       currentName = file.name;
+      frame.removeAttribute('srcdoc');
       currentUrl = new URL('windows-player/index.html', location.href).href;
       title.textContent = file.name + ' · Windows emulator';
       status.textContent = 'Opening Windows emulator…';
@@ -174,6 +175,7 @@
       currentBlob = null; currentNativeFile = null; currentDosFile = file;
       currentName = file.name;
       frame.removeAttribute('src');
+      currentUrl = '';
       title.textContent = file.name + ' · DOSBox';
       status.textContent = 'Starting DOSBox WebAssembly runtime…';
       empty.hidden = true;
@@ -224,7 +226,7 @@
     async function importFile(file,forcedName) {
       if (!file) return;
       const ext = file.name.split('.').pop().toLowerCase();
-      if (['exe','msi','com','bat'].includes(ext)) {
+      if (['exe','msi','com','bat','jsdos'].includes(ext)) {
         try {
           if(ext==='com'||ext==='bat'||ext==='jsdos') {
             await saveGame({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name:file.name,blob:file,kind:'dos',added:Date.now()});
