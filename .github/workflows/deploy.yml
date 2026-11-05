@@ -1,0 +1,108 @@
+name: Deploy Game Hub
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Game Hub
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build WindowsAppPlayer runtime
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/bassdrum4/windowsappplayer.git /tmp/windowsappplayer
+          cd /tmp/windowsappplayer
+          npm run setup
+          mkdir -p "$GITHUB_WORKSPACE/_site/windows-player"
+          rsync -a --exclude='.git' --exclude='node_modules' --exclude='package-lock.json' ./ "$GITHUB_WORKSPACE/_site/windows-player/"
+
+      - name: Adapt emulator for Game Hub embedding
+        shell: bash
+        run: |
+          cd _site/windows-player
+          # The embedded build uses the 32-bit runtime. The 64-bit engine needs
+          # top-level cross-origin isolation and is deliberately not exposed here.
+          sed -i '/coi-serviceworker\.js/d' index.html
+          sed -i '/window\.coi =/d' index.html
+          sed -i 's#<script src="app.js"></script>#<script>document.getElementById("arch64").closest(".archpick").hidden = true;</script><script src="app.js"></script>#' index.html
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const file = "app.js";
+          let source = fs.readFileSync(file, "utf8");
+          source = source.replace(
+            'if (arch && !state.booted && !state.bootInFlight && state.arch !== arch) {',
+            'if (arch === "64") { log("64-bit EXE detected. This embedded build currently supports 32-bit Windows apps only.", "warn"); state.pickedExe = null; els.runBtn.disabled = true; setStatus("64-bit EXE detected — this player currently supports 32-bit Windows apps only."); return; }\n  if (arch && !state.booted && !state.bootInFlight && state.arch !== arch) {'
+          );
+          const marker = '\n})();';
+          const at = source.lastIndexOf(marker);
+          if (at < 0) throw new Error("Could not find WindowsAppPlayer bootstrap ending");
+          const bridge = `
+          // Game Hub bridge: receive the user's local File object from the parent page.
+          window.addEventListener("message", async (event) => {
+            if (event.origin !== location.origin || event.source !== parent) return;
+            if (!event.data || event.data.type !== "DGH_LOAD_WINDOWS_FILE") return;
+            const file = event.data.file;
+            if (!(file instanceof File)) return;
+            try {
+              const ext = file.name.split(".").pop().toLowerCase();
+              if (ext === "zip") {
+                await loadBoxedwineDeps();
+                await handleZip(file);
+              } else if (ext === "exe" || ext === "msi") {
+                await handleSingleExe(file);
+              } else {
+                setStatus("Choose an EXE, MSI, or ZIP containing a Windows application.");
+              }
+            } catch (error) {
+              log("Could not load file from Game Hub: " + error.message, "error");
+              setStatus("File import failed — see console.");
+            }
+          });
+          `;
+          source = source.slice(0, at) + bridge + source.slice(at);
+          fs.writeFileSync(file, source);
+          NODE
+
+      - name: Prepare GitHub Pages artifact
+        run: |
+          mkdir -p _site
+          cp index.html _site/index.html
+          touch _site/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
