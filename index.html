@@ -98,13 +98,13 @@
     </section>
 
     <section id="presets">
-      <div class="section-head"><div><h2>Game presets</h2><p>Add links to launch from this browser. Presets added here are saved locally; shared presets for every visitor are configured in the site-wide list in the source.</p></div><span class="player-status" id="presetStatus">No presets yet</span></div>
+      <div class="section-head"><div><h2>Game presets</h2><p>Public file uploads are also shown here automatically. Click a hosted file preset to load it directly into the player; visitors do not need to download it.</p></div><span class="player-status" id="presetStatus">No presets yet</span></div>
       <form class="preset-form" id="presetForm">
         <input id="presetName" type="text" maxlength="48" placeholder="Preset name (e.g. Game title)" aria-label="Preset name" required>
         <input id="presetUrl" type="url" placeholder="https://example.com/game" aria-label="Game website URL" required>
         <button class="btn primary" type="submit">Add preset</button>
       </form>
-      <div class="preset-grid" id="presetGrid"><div class="preset-empty">No presets yet. Add a website above, or add a shared preset to SHARED_PRESETS in index.html.</div></div>
+      <div class="preset-grid" id="presetGrid"><div class="preset-empty">No presets yet. Add a website above or upload a file to publish it as a public preset.</div></div>
     </section>
 
     <section id="library"><div class="section-head"><div><h2>Game library</h2><p>Your imported games stay on this device. Community uploads are shared with everyone using this site.</p></div><span class="player-status" id="libraryStatus">No imported games yet</span></div><div class="shortcuts" id="gameLibrary"><button class="shortcut" id="ragdollImportButton" type="button"><span class="symbol">🪆</span><strong>Ragdoll Sandbox</strong><span>Select the downloaded Ragdoll HTML file to add it to this library.</span></button></div><div class="section-head"><div><h2>Community uploads</h2><p>Files uploaded by other visitors appear here automatically. Maximum file size: 50 MB.</p></div><button class="btn" id="refreshCommunityButton" type="button">Refresh</button></div><div class="shortcuts" id="communityLibrary"><div class="preset-empty">Connecting to shared library…</div></div></section>
@@ -198,8 +198,11 @@
       target.replaceChildren();
       if (error) {
         const message = document.createElement('div'); message.className = 'preset-empty';
-        message.textContent = 'Shared library unavailable: ' + error.message; target.appendChild(message); return;
+        message.textContent = 'Shared library unavailable: ' + error.message; target.appendChild(message);
+        communityPresetFiles = []; renderPresets(); return;
       }
+      communityPresetFiles = data || [];
+      renderPresets();
       if (!data || !data.length) {
         const message = document.createElement('div'); message.className = 'preset-empty';
         message.textContent = 'No community uploads yet. Upload a game above to share it with everyone.'; target.appendChild(message); return;
@@ -292,28 +295,35 @@
       frame.src = url;
       document.getElementById('player').scrollIntoView({behavior:'smooth',block:'start'});
     }
-    function renderPresets() {
+    async function renderPresets() {
       const local = getLocalPresets();
-      const presets = [...SHARED_PRESETS.map((p,i)=>({...p,id:'shared-'+i,shared:true})), ...local.map((p,i)=>({...p,id:'local-'+i,shared:false}))];
+      const presets = [
+        ...SHARED_PRESETS.map((p,i)=>({...p,id:'shared-'+i,shared:true})),
+        ...communityPresetFiles.map(item=>({name:item.name,id:'community-'+item.id,shared:true,fileItem:item})),
+        ...local.map((p,i)=>({...p,id:'local-'+i,shared:false}))
+      ];
       presetGrid.replaceChildren();
-      presetStatus.textContent = presets.length + ' preset' + (presets.length===1?'':'s');
+      presetStatus.textContent = presets.length + ' public/local preset' + (presets.length===1?'':'s');
       if (!presets.length) {
         const emptyCard=document.createElement('div'); emptyCard.className='preset-empty';
-        emptyCard.textContent='No presets yet. Add a name and website URL above.';
+        emptyCard.textContent='No presets yet. Add a website above or upload a file to publish it as a public preset.';
         presetGrid.appendChild(emptyCard); return;
       }
       presets.forEach(p=>{
         const card=document.createElement('article'); card.className='preset-card';
         const name=document.createElement('strong'); name.textContent=p.name;
-        const url=document.createElement('small'); url.textContent=p.url;
+        const url=document.createElement('small');
+        url.textContent=p.fileItem
+          ? 'Hosted public file · ' + formatFileSize(p.fileItem.size_bytes) + ' · no download required'
+          : p.url;
         const actions=document.createElement('div'); actions.className='preset-actions';
         const launch=document.createElement('button'); launch.type='button'; launch.className='btn primary'; launch.textContent='Load in player';
-        launch.addEventListener('click',()=>loadPreset(p.name,p.url));
+        launch.addEventListener('click',()=>p.fileItem ? loadCommunityFile(p.fileItem) : loadPreset(p.name,p.url));
         actions.appendChild(launch);
         if(!p.shared){
           const remove=document.createElement('button'); remove.type='button'; remove.className='btn'; remove.textContent='Remove';
           remove.addEventListener('click',()=>{
-            const all=getLocalPresets(); all.splice(p.id.startsWith('local-')?Number(p.id.slice(6)): -1,1);
+            const all=getLocalPresets(); all.splice(Number(p.id.slice(6)),1);
             saveLocalPresets(all); renderPresets();
           });
           actions.appendChild(remove);
