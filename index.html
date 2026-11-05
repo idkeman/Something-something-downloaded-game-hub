@@ -50,13 +50,25 @@
     .library-launch{display:block;width:100%;border:0;background:transparent;color:inherit;text-align:left;padding:0}.saved-game{display:flex;flex-direction:column;align-items:stretch;gap:12px}.shortcut .symbol{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(135deg,#fe191e55,#4169e155);font-size:20px;margin-bottom:12px}
     .shortcut strong{display:block;font-size:15px}.shortcut span{display:block;color:var(--muted);font-size:12px;margin-top:5px;line-height:1.5}
     footer{text-align:center;color:#777;font-size:12px;padding:25px 15px 35px}
+    .preset-form{display:grid;grid-template-columns:1fr 2fr auto;gap:9px;margin:0 2px 16px}
+    .preset-form input{min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#09090dcc;color:#fff;outline:none}
+    .preset-form input:focus{border-color:#718bff;box-shadow:0 0 0 3px #4169e133}
+    .preset-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    .preset-card{border:1px solid var(--line);border-radius:18px;padding:16px;background:var(--panel);display:flex;flex-direction:column;gap:11px;min-width:0}
+    .preset-card strong{font-size:15px;overflow-wrap:anywhere}
+    .preset-card small{color:var(--muted);overflow-wrap:anywhere;line-height:1.45}
+    .preset-actions{display:flex;gap:8px;margin-top:auto;flex-wrap:wrap}
+    .preset-actions .btn{flex:1}
+    .preset-empty{border:1px dashed var(--line);border-radius:16px;padding:22px;color:var(--muted);text-align:center;grid-column:1/-1}
+    @media(max-width:700px){.preset-form{grid-template-columns:1fr}.preset-grid{grid-template-columns:1fr}}
+
     @media(max-width:700px){.topbar{top:7px;margin-top:7px}.navlinks a{padding:9px}.hero{padding-top:48px}.shortcuts{grid-template-columns:1fr}.stage{height:58vh;min-height:300px}.player-head{align-items:stretch}.url-form{max-width:none;order:2;flex-basis:100%}.tools{justify-content:flex-end}.below{align-items:flex-start}}
   </style>
 </head>
 <body>
   <nav class="topbar" aria-label="Main navigation">
     <div class="brand"><span class="brand-mark">▶</span><span>Downloaded Game Hub</span></div>
-    <div class="navlinks"><a href="#player">Player</a><a href="#library">Game library</a><a href="#shortcuts">Tools</a><button id="clearButton" type="button">Clear frame</button></div>
+    <div class="navlinks"><a href="#player">Player</a><a href="#presets">Presets</a><a href="#library">Game library</a><a href="#shortcuts">Tools</a><button id="clearButton" type="button">Clear frame</button></div>
   </nav>
 
   <header class="hero">
@@ -84,6 +96,16 @@
       <div class="below"><span>Embedded game window</span><span>Some sites block iframe embedding; those games must be opened in a new tab.</span></div>
     </section>
 
+    <section id="presets">
+      <div class="section-head"><div><h2>Game presets</h2><p>Save website links here so anyone using this browser can launch them in the player.</p></div><span class="player-status" id="presetStatus">No presets yet</span></div>
+      <form class="preset-form" id="presetForm">
+        <input id="presetName" type="text" maxlength="48" placeholder="Preset name (e.g. Game title)" aria-label="Preset name" required>
+        <input id="presetUrl" type="url" placeholder="https://example.com/game" aria-label="Game website URL" required>
+        <button class="btn primary" type="submit">Add preset</button>
+      </form>
+      <div class="preset-grid" id="presetGrid"><div class="preset-empty">Add a game website above to create your first preset.</div></div>
+    </section>
+
     <section id="library"><div class="section-head"><div><h2>Game library</h2><p>Launch games imported into this browser. Your library stays on this device.</p></div><span class="player-status" id="libraryStatus">No imported games yet</span></div><div class="shortcuts" id="gameLibrary"><button class="shortcut" id="ragdollImportButton" type="button"><span class="symbol">🪆</span><strong>Ragdoll Sandbox</strong><span>Select the downloaded Ragdoll HTML file to add it to this library.</span></button></div></section>
 
     <section id="shortcuts">
@@ -105,6 +127,13 @@
     const title = document.getElementById('gameTitle');
     const library = document.getElementById('gameLibrary');
     const libraryStatus = document.getElementById('libraryStatus');
+    const presetGrid = document.getElementById('presetGrid');
+    const presetStatus = document.getElementById('presetStatus');
+    const PRESET_STORAGE_KEY = 'downloaded-game-hub-presets-v1';
+    // Add site-wide presets here before publishing. These appear for every visitor.
+    const SHARED_PRESETS = [
+      // { name: 'Example Game', url: 'https://example.com/game' }
+    ];
     let currentUrl = '', currentBlob = null, currentNativeFile = null, currentDosFile = null, currentName = '';
     const DB_NAME = 'downloaded-game-hub', STORE = 'games';
 
@@ -143,6 +172,78 @@
       });
       db.close(); renderLibrary();
     }
+
+    function normalizePresetUrl(value) {
+      const url = new URL(value);
+      if (!['http:','https:'].includes(url.protocol)) throw new Error('Only http:// and https:// website links are allowed.');
+      return url.href;
+    }
+    function getLocalPresets() {
+      try {
+        const value = JSON.parse(localStorage.getItem(PRESET_STORAGE_KEY) || '[]');
+        return Array.isArray(value) ? value.filter(p=>p&&typeof p.name==='string'&&typeof p.url==='string') : [];
+      } catch { return []; }
+    }
+    function saveLocalPresets(items) {
+      localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(items));
+    }
+    function loadPreset(name, rawUrl) {
+      let url;
+      try { url = normalizePresetUrl(rawUrl); }
+      catch(e) { status.textContent = e.message; return; }
+      if (currentUrl && currentUrl.startsWith('blob:')) URL.revokeObjectURL(currentUrl);
+      currentUrl = url; currentBlob = null; currentNativeFile = null; currentDosFile = null; currentName = name;
+      frame.removeAttribute('srcdoc');
+      title.textContent = name;
+      status.textContent = 'Loading preset website…';
+      empty.hidden = true;
+      frame.onload = () => { status.textContent = 'Preset loaded: ' + name; };
+      frame.onerror = () => { status.textContent = 'The website could not be loaded in the frame.'; };
+      frame.src = url;
+      document.getElementById('player').scrollIntoView({behavior:'smooth',block:'start'});
+    }
+    function renderPresets() {
+      const local = getLocalPresets();
+      const presets = [...SHARED_PRESETS.map((p,i)=>({...p,id:'shared-'+i,shared:true})), ...local.map((p,i)=>({...p,id:'local-'+i,shared:false}))];
+      presetGrid.replaceChildren();
+      presetStatus.textContent = presets.length + ' preset' + (presets.length===1?'':'s');
+      if (!presets.length) {
+        const emptyCard=document.createElement('div'); emptyCard.className='preset-empty';
+        emptyCard.textContent='No presets yet. Add a name and website URL above.';
+        presetGrid.appendChild(emptyCard); return;
+      }
+      presets.forEach(p=>{
+        const card=document.createElement('article'); card.className='preset-card';
+        const name=document.createElement('strong'); name.textContent=p.name;
+        const url=document.createElement('small'); url.textContent=p.url;
+        const actions=document.createElement('div'); actions.className='preset-actions';
+        const launch=document.createElement('button'); launch.type='button'; launch.className='btn primary'; launch.textContent='Load in player';
+        launch.addEventListener('click',()=>loadPreset(p.name,p.url));
+        actions.appendChild(launch);
+        if(!p.shared){
+          const remove=document.createElement('button'); remove.type='button'; remove.className='btn'; remove.textContent='Remove';
+          remove.addEventListener('click',()=>{
+            const all=getLocalPresets(); all.splice(p.id.startsWith('local-')?Number(p.id.slice(6)): -1,1);
+            saveLocalPresets(all); renderPresets();
+          });
+          actions.appendChild(remove);
+        }
+        card.append(name,url,actions); presetGrid.appendChild(card);
+      });
+    }
+    document.getElementById('presetForm').addEventListener('submit',event=>{
+      event.preventDefault();
+      const name=document.getElementById('presetName').value.trim();
+      const rawUrl=document.getElementById('presetUrl').value.trim();
+      if(!name){presetStatus.textContent='Enter a preset name.';return;}
+      try {
+        const url=normalizePresetUrl(rawUrl);
+        const items=getLocalPresets();
+        if(items.some(p=>p.url===url)){presetStatus.textContent='That website is already in your presets.';return;}
+        items.push({name,url}); saveLocalPresets(items);
+        event.target.reset(); renderPresets();
+      } catch(e) { presetStatus.textContent=e.message; }
+    });
     function showGame(blob,name) {
       currentBlob = blob; currentNativeFile = null; currentDosFile = null; currentName = name;
       frame.removeAttribute('srcdoc');
@@ -318,7 +419,7 @@
     function reloadGame() {
       if(currentNativeFile){launchWindowsApp(currentNativeFile);return;}
       if(currentDosFile){launchDosApp(currentDosFile);return;}
-      if(!currentBlob){status.textContent='Load a game first';return;}
+      if(!currentBlob){if(currentUrl){loadPreset(currentName,currentUrl);return;}status.textContent='Load a game first';return;}
       showGame(currentBlob,currentName); status.textContent='Game restarted';
     }
     function fullscreen() {
@@ -340,6 +441,7 @@
       currentUrl='';currentBlob=null;currentNativeFile=null;currentDosFile=null;currentName='';title.textContent='Game player';
       status.textContent='Ready for a game';empty.hidden=false;
     });
+    renderPresets();
     renderLibrary();
   </script></body>
 </html>
