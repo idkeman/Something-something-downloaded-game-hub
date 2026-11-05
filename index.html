@@ -159,7 +159,7 @@
       currentNativeFile = file; currentDosFile = null;
       currentName = file.name;
       frame.removeAttribute('srcdoc');
-      currentUrl = new URL('windows-player/index.html', location.href).href;
+      currentUrl = new URL('windows-player/index.html?launch='+Date.now(), location.href).href;
       title.textContent = file.name + ' · Windows emulator';
       status.textContent = 'Opening Windows emulator…';
       empty.hidden = true;
