@@ -70,7 +70,7 @@
       <div class="player-head">
         <div><div class="player-title" id="gameTitle">Game player</div><div class="player-status" id="status">Ready for a game</div></div>
         <div class="tools">
-          <div class="url-form" id="uploadForm"><input id="gameFile" type="file" accept=".html,.htm,.zip,text/html,application/zip" aria-label="Choose a browser game file"><button class="btn primary" id="uploadButton" type="button">Load file</button></div>
+          <div class="url-form" id="uploadForm"><input id="gameFile" type="file" accept=".html,.htm,.zip,.exe,.msi,.apk,text/html,application/zip,application/vnd.android.package-archive,application/x-msdownload" aria-label="Choose a browser game file"><button class="btn primary" id="uploadButton" type="button">Load file</button></div>
           <button class="btn" id="reloadButton" type="button" title="Reload game">↻</button>
           <button class="btn" id="fullscreenButton" type="button" title="Fullscreen">⛶</button>
         </div>
@@ -78,7 +78,7 @@
       <div class="stage-wrap">
         <div class="stage" id="stage">
           <iframe id="gameFrame" title="Loaded game" allow="autoplay; fullscreen; gamepad; clipboard-read; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe>
-          <div class="empty" id="emptyState"><div class="empty-inner"><div class="empty-icon">🎮</div><h2>Your game goes here</h2><p>Choose a browser game file above, or pick a saved game from the library below. HTML games and ZIP packages containing an index.html file are supported.</p></div></div>
+          <div class="empty" id="emptyState"><div class="empty-inner"><div class="empty-icon">🎮</div><h2>Your game goes here</h2><p>Choose an HTML/ZIP game or a Windows executable. Windows EXE support uses a browser-based Wine emulator; APK support is not yet available for ordinary Android games.</p></div></div>
         </div>
       </div>
       <div class="below"><span>Embedded game window</span><span>Some sites block iframe embedding; those games must be opened in a new tab.</span></div>
@@ -105,7 +105,7 @@
     const title = document.getElementById('gameTitle');
     const library = document.getElementById('gameLibrary');
     const libraryStatus = document.getElementById('libraryStatus');
-    let currentUrl = '', currentBlob = null, currentName = '';
+    let currentUrl = '', currentBlob = null, currentNativeFile = null, currentName = '';
     const DB_NAME = 'downloaded-game-hub', STORE = 'games';
 
     function openDatabase() {
@@ -152,11 +152,39 @@
       frame.onload = () => status.textContent = 'Game loaded';
       document.getElementById('player').scrollIntoView({behavior:'smooth',block:'start'});
     }
+    function launchWindowsApp(file) {
+      if (currentUrl && currentUrl.startsWith('blob:')) URL.revokeObjectURL(currentUrl);
+      currentBlob = null;
+      currentNativeFile = file;
+      currentName = file.name;
+      currentUrl = new URL('windows-player/index.html', location.href).href;
+      title.textContent = file.name + ' · Windows emulator';
+      status.textContent = 'Opening Windows emulator…';
+      empty.hidden = true;
+      frame.onload = () => {
+        frame.contentWindow.postMessage({type:'DGH_LOAD_WINDOWS_FILE',file}, location.origin);
+        status.textContent = 'Windows emulator received ' + file.name;
+      };
+      frame.src = currentUrl;
+      document.getElementById('player').scrollIntoView({behavior:'smooth',block:'start'});
+    }
     async function importFile(file,forcedName) {
       if (!file) return;
       const ext = file.name.split('.').pop().toLowerCase();
-      if (['exe','apk','msi','dmg','ipa'].includes(ext)) {
-        status.textContent = 'Native EXE/APK apps cannot be automatically converted. They need a browser port or a compatible emulator.';
+      if (['exe','msi'].includes(ext)) {
+        try {
+          await saveGame({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),name:file.name,blob:file,kind:'windows',added:Date.now()});
+          launchWindowsApp(file);
+          await renderLibrary();
+        } catch(e) { status.textContent='Could not save executable: '+e.message; }
+        return;
+      }
+      if (ext === 'apk') {
+        status.textContent = 'APK support is not ready for normal Android games. The available browser emulator only runs a tiny test APK, not arbitrary apps.';
+        return;
+      }
+      if (['dmg','ipa'].includes(ext)) {
+        status.textContent = 'This file format is not supported by the browser launcher.';
         return;
       }
       let blob, name = forcedName || file.name.replace(/\.(html?|zip)$/i,'');
@@ -197,7 +225,7 @@
           const launch=document.createElement('button'); launch.type='button'; launch.className='library-launch';
           launch.innerHTML='<span class="symbol">🎮</span><strong></strong><span>Load this game into the player.</span>';
           launch.querySelector('strong').textContent=game.name;
-          launch.addEventListener('click',()=>showGame(game.blob,game.name));
+          launch.addEventListener('click',()=>game.kind==='windows'?launchWindowsApp(game.blob):showGame(game.blob,game.name));
           const remove=document.createElement('button'); remove.type='button'; remove.className='btn'; remove.textContent='Remove';
           remove.addEventListener('click',()=>removeGame(game.id));
           card.append(launch,remove); library.appendChild(card);
@@ -214,6 +242,7 @@
       status.textContent='Select the downloaded Ragdoll Sandbox HTML file';
     });
     function reloadGame() {
+      if(currentNativeFile){launchWindowsApp(currentNativeFile);return;}
       if(!currentBlob){status.textContent='Load a game first';return;}
       showGame(currentBlob,currentName); status.textContent='Game restarted';
     }
@@ -227,12 +256,13 @@
     document.getElementById('fullscreenButton').addEventListener('click',fullscreen);
     document.getElementById('fullscreenCardButton').addEventListener('click',fullscreen);
     document.getElementById('openTabButton').addEventListener('click',()=>{
+      if(currentNativeFile) { status.textContent='The executable is passed to the embedded emulator; use the player frame to run it.'; return; }
       if(currentUrl)window.open(currentUrl,'_blank','noopener,noreferrer');
       else status.textContent='Load a game first';
     });
     document.getElementById('clearButton').addEventListener('click',()=>{
-      frame.removeAttribute('src'); if(currentUrl)URL.revokeObjectURL(currentUrl);
-      currentUrl='';currentBlob=null;currentName='';title.textContent='Game player';
+      frame.removeAttribute('src'); if(currentUrl && currentUrl.startsWith('blob:'))URL.revokeObjectURL(currentUrl);
+      currentUrl='';currentBlob=null;currentNativeFile=null;currentName='';title.textContent='Game player';
       status.textContent='Ready for a game';empty.hidden=false;
     });
     renderLibrary();
